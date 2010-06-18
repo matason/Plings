@@ -1,0 +1,384 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Integrates Plings http://www.plings.net/ with Drupal.
+ */
+
+/**
+ * Implementation of hook_help().
+ */
+function plings_help($path, $arg) {
+  switch ($path) {
+  case 'admin/help#plings':
+    return '<p>' . t('Plings is a source of information about brilliant, inspiring places to go and stuff to do for everyone aged 13-19. For more information about Plings see <a href="@url">plings.net</a>.', array('@url' => 'http://plings.net')) . '</p>';
+    break;
+
+  case 'admin/settings/plings':
+    return t('Complete the configuration to start using Plings. Plings requires an API key and also needs to know how your site detects the location of users.');
+    break;
+  }
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function plings_menu() {
+  $items['admin/settings/plings'] = array(
+    'title' => 'Plings',
+    'description' => 'Plings module settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('plings_admin_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'plings.pages.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_user().
+ */
+function plings_user($op, &$edit, &$account, $category = NULL) {
+  switch ($op) {
+    case 'login':
+      plings_user_plings($account);
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_cron().
+ */
+function plings_cron() {
+  // @todo - Determine the best approach for updating Plings, the code here is
+  // ineffiecient and will not work with a large {users} table.
+  $result = db_query('SELECT uid FROM {users} WHERE uid > 0 AND status <> 0');
+  while ($row = db_fetch_object($result)) {
+    $account = user_load($row->uid);
+    plings_user_plings($account);
+  }
+}
+
+/**
+ * Refresh Plings for a user.
+ *
+ * @param $account
+ *    (Optional) Object, a user object, if not supplied Plings will be
+ *    refreshed for the current logged in user.
+ */
+function plings_user_plings($account = NULL) {
+  // If an account wasn't supplied, use the current logged in user.
+  if (is_null($account)) {
+    global $user;
+    $account = drupal_clone($user);
+  }
+
+  // Gather settings to pass to the fetch function.
+  $filter_type = variable_get('plings_filter_type', '');
+  $filter_value = plings_get_location_handler_filter_value($account);
+  $period = (int) variable_get('plings_period', 7);
+  $limit = (int) variable_get('plings_limit', 10);
+
+  // Make the call the Plings API and save the returned Plings.
+  if (!empty($filter_type) && !empty($filter_value)) {
+    if ($data = plings_fetch_plings($filter_type, $filter_value, 'xml', $period, $limit)) {
+      plings_save_plings($data, $account);
+    }
+  }
+}
+
+/**
+ * Fetch Plings from the Plings API service.
+ *
+ * @param $filter_type
+ *    String, the type of filter to use when retrieving Plings, can be
+ *    postcode, town, co (local authority code), LA (local authority
+ *    code), ward (ward code), v (venue id), o (organisation id), latlng
+ *    (latitude and longitude).
+ * @param $filter_value
+ *    String, the value of the filter, used in conjunction with $filter_type.
+ * @param $format
+ *    (Optional) String, the format in which to retrieve the Plings, can be rss,
+ *    kml, csv, xml (default), json or ical.
+ * @param $period
+ *    (Optional) Integer, the number of days to retrieve Plings for, defaults
+ *    to 0 (one day, today).
+ * @param $limit
+ *    (Optional) Integer, the number of results to return, defaults to 10.
+ *
+ * @return
+ *    Array, an array of Plings or FALSE if an error occurred.
+ *
+ * @see http://www.plings.info/wiki/index.php/Plings_Output_API
+ */
+function plings_fetch_plings($filter_type, $filter_value, $format = 'xml', $period = 0, $limit = 10) {
+  // Check we have an API key before proceeding.
+  if (!$plings_api_key = variable_get('plings_api_key', '')) {
+    watchdog('plings', 'A request for Plings was made without an API key.');
+    return FALSE;
+  }
+
+  // The base Plings URL.
+  $plings_url = variable_get('plings_url', 'http://feeds.plings.net');
+
+  // Construct the rest of URL adding in the request parameters.
+  $url = $plings_url . '/' . $format . '.activity.php/' . $period . '/' . $filter_type . '/' . $filter_value . '?APIKey=' . $plings_api_key . '&MaxResults=' . $limit;
+
+  // Make the request to Plings.
+  timer_start('plings_request');
+  $response = drupal_http_request($url);
+  $timer = timer_stop('plings_request');
+  watchdog('plings', 'Requested data from Plings - @url - completed in !msms', array('@url' => $url, '!ms' => $timer['time']));
+
+  // Check the response.
+  if ($response->code != 200) {
+    watchdog('plings', 'Unable to retrieve Plings - response code was !code', array('!code' => $response->code));
+    return FALSE;
+  }
+
+  // Check for Plings errors.
+  $data = new SimpleXMLElement($response->data);
+  if (isset($data->result->Errors)) {
+    foreach ($data->result->Errors->children() as $error) {
+      watchdog('plings', 'Error reported from Plings - %error', array('%error' => $error->getName()));
+    }
+    return FALSE;
+  }
+
+  // It all went well, return the data.
+  return $response->data;
+}
+
+/**
+ * Plings XML to array helper.
+ *
+ * @param $data
+ *    String, the XML to process.
+ *
+ * @return $plings
+ *    Array, an array of Plings.
+ */
+function plings_xml_to_array($data) {
+  $plings = array();
+
+  $xml = new SimpleXMLElement($data);
+
+  // Generated info.
+  $plings['generated'] = array();
+  foreach ($xml->generated->children() as $key => $value) {
+    $plings['generated'][$key] = check_plain($value);
+  }
+
+  // Query details.
+  $plings['query'] = array();
+  foreach ($xml->queryDetails->children() as $key => $value) {
+    $plings['query'][$key] = check_plain($value);
+  }
+
+  // Activities.
+  $plings['activities'] = array();
+  foreach ($xml->activities->children() as $activity) {
+    // Activity info.
+    $activity_id = (string) $activity->attributes()->id;
+    $plings['activities'][$activity_id]['Name'] = $activity->Name;
+    $plings['activities'][$activity_id]['Starts'] = $activity->Starts;
+    $plings['activities'][$activity_id]['Ends'] = $activity->Ends;
+    $plings['activities'][$activity_id]['Details'] = $activity->Details;
+    $plings['activities'][$activity_id]['Cost'] = $activity->Cost;
+    $plings['activities'][$activity_id]['ContactName'] = $activity->ContactName;
+    $plings['activities'][$activity_id]['ContactNumber'] = $activity->ContactNumber;
+    $plings['activities'][$activity_id]['ContactEmail'] = $activity->ContactEmail;
+
+    // Venue info.
+    $plings['activities'][$activity_id]['venue']['Id'] = (string) $activity->venue->attributes()->id;
+    $plings['activities'][$activity_id]['venue']['Name'] = $activity->venue->Name;
+    $plings['activities'][$activity_id]['venue']['BuildingNameNo'] = $activity->venue->BuildingNameNo;
+    $plings['activities'][$activity_id]['venue']['Street'] = $activity->venue->Street;
+    $plings['activities'][$activity_id]['venue']['Town'] = $activity->venue->Town;
+    $plings['activities'][$activity_id]['venue']['PostTown'] = $activity->venue->PostTown;
+    $plings['activities'][$activity_id]['venue']['County'] = $activity->venue->County;
+    $plings['activities'][$activity_id]['venue']['Postcode'] = $activity->venue->Postcode;
+    $plings['activities'][$activity_id]['venue']['Telephone'] = $activity->venue->Telephone;
+    $plings['activities'][$activity_id]['venue']['PlingsPlaceLink'] = $activity->venue->PlingsPlaceLink;
+
+    // Provider info.
+    $plings['activities'][$activity_id]['provider']['Id'] = (string) $activity->provider->attributes()->id;
+    $plings['activities'][$activity_id]['provider']['Name'] = $activity->provider->Name;
+    $plings['activities'][$activity_id]['provider']['Description'] = $activity->provider->Description;
+    $plings['activities'][$activity_id]['provider']['Website'] = $activity->provider->Website;
+    $plings['activities'][$activity_id]['provider']['Contact'] = $activity->provider->Contact;
+    $plings['activities'][$activity_id]['provider']['Email'] = $activity->provider->Email;
+    $plings['activities'][$activity_id]['provider']['Phone'] = $activity->provider->Phone;
+  }
+
+  return $plings;
+}
+
+/**
+ * Save the Plings to the database.
+ *
+ * @param $plings
+ *    String, XML as returned from the call to the Plings API.
+ */
+function plings_save_plings($plings, $account) {
+  $plings = plings_xml_to_array($plings);
+
+  // Remove old Plings.
+  db_query('DELETE FROM {plings} WHERE uid = %d', $account->uid);
+
+  // @todo - Establish whether venues and providers are unique to activities!
+  // Currently the code assumes they are, it does not update venues and
+  // providers if they already exist.
+  // @todo - Deleting Plings ensures old Plings don't mount up but because
+  // we're treating venue and provider data as common across Plings this may
+  // leave orphaned records in {plings_venue} and {plings_provider}.
+
+  // Loop through the Plings saving activities, the venue and provider (if neccessary).
+  foreach ($plings['activities'] as $aid => $pling) {
+    // Save the Pling.
+    db_query("INSERT INTO {plings} (aid, uid, vid, pid, filter_type, filter_value, name, starts, ends, details, cost, contact, phone, mail) VALUES (%d, %d, %d, %d, '%s', '%s', '%s', %d, %d, '%s', %d, '%s', '%s', '%s')", $aid, $account->uid, $pling['venue']['Id'], $pling['provider']['Id'], $filter_type, $filter_value, $pling['Name'], strtotime($pling['Starts']), strtotime($pling['Ends']), $pling['Details'], $pling['Cost'], $pling['ContactName'], $pling['ContactNumber'], $pling['ContactEmail']);
+
+    // Save the venue if it doesn't already exist.
+    if (!db_result(db_query('SELECT COUNT(*) FROM {plings_venue} WHERE vid = %d', $pling['venue']['Id']))) {
+      db_query("INSERT INTO {plings_venue} (vid, name, building, street, town, post_town, county, postcode, phone, place_link) VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')", $pling['venue']['Id'], $pling['venue']['Name'], $pling['venue']['BuildingNameNo'], $pling['venue']['Street'], $pling['venue']['Town'], $pling['venue']['PostTown'], $pling['venue']['County'], $pling['venue']['Postcode'], $pling['venue']['Telephone'], $pling['venue']['PlingsPlaceLink']);
+    }
+
+    // Save the provider if they don't already exist.
+    if (!db_result(db_query('SELECT COUNT(*) FROM {plings_provider} WHERE pid = %d', $pling['provider']['Id']))) {
+      db_query("INSERT INTO {plings_provider} (pid, name, description, website, contact, phone, mail) VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s')", $pling['provider']['Id'], $pling['provider']['Name'], $pling['provider']['Description'], $pling['provider']['Website'], $pling['provider']['Contact'], $pling['provider']['Email'], $pling['provider']['Phone']);
+    }
+  }
+}
+
+/**
+ * Include user location handlers.
+ *
+ * @return $handlers
+ *    Array, an array as returned by file_scan_directory.
+ */
+function plings_include_handlers() {
+  static $handlers = array();
+
+  if (empty($handlers)) {
+    $handlers = file_scan_directory(drupal_get_path('module', 'plings') . '/handlers', '\.plings\.inc$');
+    foreach ($handlers as $file => $handler) {
+      include_once "./$file";
+    }
+  }
+
+  return $handlers;
+}
+
+
+/**
+ * Load user location handler methods.
+ *
+ * @return $info
+ *    Array, an array of handler info.
+ */
+function plings_get_location_handler_info() {
+  static $info = array();
+
+  if (empty($info)) {
+    foreach (plings_include_handlers() as $handler) {
+      $name = str_replace('.', '_', $handler->name);
+      $function = $name . '_info';
+      if (function_exists($function)) {
+        $info[$name] = $function();
+      }
+    }
+  }
+
+  return $info;
+}
+
+/**
+ * Get user location handler filter options for the enabled handler.
+ *
+ * @param $type
+ *    (Optional) String, 'raw' to return the raw values returned from the
+ *    handler, 'processed' to return the friendly supported values.
+ *
+ * @return $filter_options
+ *    Array, an array of filter options.
+ */
+function plings_get_location_handler_filter_options($type = 'processed') {
+  static $filter_options = array();
+
+  if (empty($filter_options)) {
+    plings_include_handlers();
+    if ($function = variable_get('plings_location_handler', '') . '_filter_options') {
+      if (function_exists($function)) {
+        $filter_options['raw'] = $function();
+        $filter_options['processed'] = array_intersect_key(plings_filter_type_options(), $filter_options['raw']);
+      }
+    }
+  }
+
+  return $filter_options[$type];
+}
+
+/**
+ * Provide a list of filter method options.
+ *
+ * @return $options
+ *    Array, an array of supported filter method options.
+ */
+function plings_get_available_handlers() {
+  $handlers = array();
+
+  $info = plings_get_location_handler_info();
+  foreach ($info as $name => $handler) {
+    $handlers[$name] = check_plain($handler['name']);
+  }
+
+  return $handlers;
+}
+
+/**
+ * Get user location handler filter value for the enabled handler.
+ *
+ * @param $account
+ *    Object, an account object as returned by user_load(), we want the filter
+ *    value for this account.
+ *
+ * @return $filter_value
+ *    String, the filter value.
+ */
+function plings_get_location_handler_filter_value($account) {
+  $filter_value = '';
+
+  $function = variable_get('plings_location_handler', '') . '_filter_value';
+  $filter_options = plings_get_location_handler_filter_options('raw');
+  if ($filter_option = $filter_options[variable_get('plings_filter_type', '')]) {
+    if (function_exists($function)) {
+      $filter_value = $function($filter_option, $account);
+    }
+  }
+
+  return check_plain($filter_value);
+}
+
+/**
+ * Provide a list of supported filter type options.
+ *
+ * @return $options
+ *    Array, an array of filter type options.
+ */
+function plings_filter_type_options() {
+  return array(
+    'town' => t('Town'),
+    'postcode' => t('Postcode'),
+  );
+}
+
+/**
+ * Implementation of hook_views_api().
+ */
+function plings_views_api() {
+  return array(
+    'api' => 2,
+  );
+}

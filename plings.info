@@ -1,0 +1,7 @@
+; $Id$
+name = Plings
+description = Adds integration with Plings.
+dependencies[] = views
+package = Other
+php = 5
+core = 6.x

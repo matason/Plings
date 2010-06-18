@@ -1,0 +1,273 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Install file for Plings module.
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function plings_install() {
+  drupal_install_schema('plings');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function plings_schema() {
+  $schema['plings'] = array(
+    'description' => 'Plings base table, stores information about activities.',
+    'fields' => array(
+      'aid' => array(
+        'description' => 'The activity id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'uid' => array(
+        'description' => 'The {users}.uid.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'vid' => array(
+        'description' => 'The {plings_venue}.vid, the venue at which this activity takes place.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'pid' => array(
+        'description' => 'The {plings_provider}.pid, the provider of this activity.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'filter_type' => array(
+        'description' => 'The filter type used to return this row from Plings.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'filter_value' => array(
+        'description' => 'The value used in conjunction with the filter type used to return this row from Plings.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'name' => array(
+        'description' => 'The name of the activity.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'starts' => array(
+        'description' => 'Start date and time stored as a UNIX timestamp.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'ends' => array(
+        'description' => 'End date and time stored as a UNIX timestamp.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'details' => array(
+        'description' => 'Details of the activity.',
+        'type' => 'text',
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'cost' => array(
+        'description' => 'Cost of the activity.',
+        'type' => 'float',
+        'size' => 'normal',
+        'precision' => 10,
+        'scale' => 2,
+        'not null' => TRUE,
+        'default' => '0.00',
+      ),
+      'contact' => array(
+        'description' => 'The contact name.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'phone' => array(
+        'description' => 'Phone number of the contact.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'mail' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Email address of the contact.',
+      ),
+    ),
+    'primary key' => array('aid'),
+    'indexes' => array(
+      'uid' => array('uid'),
+      'vid' => array('vid'),
+      'pid' => array('pid'),
+    ),
+  );
+
+  $schema['plings_venue'] = array(
+    'description' => 'Plings venue table, stores information about the venues where activities are taking place.',
+    'fields' => array(
+      'vid' => array(
+        'description' => 'The venue id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'The name of the venue.',
+      ),
+      'building' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Building name/number.',
+      ),
+      'street' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Address street.',
+      ),
+      'town' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Address town.',
+      ),
+      'post_town' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Address post town.',
+      ),
+      'county' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Address county.',
+      ),
+      'postcode' => array(
+        'type' => 'varchar',
+        'length' => 16,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Address postcode.',
+      ),
+      'phone' => array(
+        'description' => 'Phone number of the venue.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'place_link' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'The Plings place link.',
+      ),
+    ),
+    'primary key' => array('vid'),
+  );
+
+  $schema['plings_provider'] = array(
+    'description' => 'Plings provider table, stores information about the providers of activities.',
+    'fields' => array(
+      'pid' => array(
+        'description' => 'The provider id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'The name of the provider.',
+      ),
+      'description' => array(
+        'description' => 'Description of the provider.',
+        'type' => 'text',
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'website' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'The website of the provider.',
+      ),
+      'contact' => array(
+        'description' => 'The contact name.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'phone' => array(
+        'description' => 'Phone number of the contact.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'mail' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+        'default' => '',
+        'description' => 'Email address of the contact.',
+      ),
+    ),
+    'primary key' => array('pid'),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function plings_uninstall() {
+  // Remove the variables Plings created.
+  db_query("DELETE FROM {variable} WHERE name LIKE 'plings_%'");
+
+  // Uninstall the Plings schema.
+  drupal_uninstall_schema('plings');
+}

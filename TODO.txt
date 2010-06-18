@@ -1,0 +1,51 @@
+// $Id$
+
+Plings
+------
+
+Determine the best way to update users Plings
+---------------------------------------------
+Take into consideration a large {users} table.
+
+Currently updating when a user logs in and on cron (current hook_cron() code is
+not suitable).
+
+Perhaps before making a call to the Plings API it would be good to check
+whether {plings} contains rows with filter_type and filter_value that match for
+the user and duplicate those rows with the user ID.
+
+
+
+Venues and Providers
+--------------------
+Establish whether venues and providers are unique to activities or whether the
+info for a venue and/or provider may vary per activity.
+
+A flaw at the moment is that venue and provider data will never be updated.
+
+Work out a strategy for venue and provider data, do we simply let it mount up?
+
+
+
+Users ability to select how 'their' Plings are filtered
+-------------------------------------------------------
+Currently this is set by the administrator and is limited to town or postcode.
+
+
+
+Add support for more user location detection methods
+----------------------------------------------------
+Currently on location_user module is supported.
+
+
+
+Review Views integration
+------------------------
+Is there more that could be done here?
+
+
+
+Configuration
+-------------
+Currently have to save configuration twice, add jQuery to pull in the Filter
+value options when the User location detection method is selected/changed.
