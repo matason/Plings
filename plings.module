@@ -225,6 +225,10 @@ function plings_xml_to_array($data) {
 function plings_save_plings($plings, $account) {
   $plings = plings_xml_to_array($plings);
 
+  // The filter type and value used to retrieve the Plings.
+  $filter_type = variable_get('plings_filter_type', '');
+  $filter_value = plings_get_location_handler_filter_value($account);
+
   // Remove old Plings.
   db_query('DELETE FROM {plings} WHERE uid = %d', $account->uid);
 
