@@ -121,9 +121,9 @@ function plings_fetch_plings($filter_type, $filter_value, $format = 'xml', $peri
   }
 
   // The base Plings URL.
-  $plings_url = variable_get('plings_url', 'http://feeds.plings.net');
+  $plings_url = variable_get('plings_protocol', 'http') . '://' . variable_get('plings_url', 'feeds.plings.net');
 
-  // Construct the rest of URL adding in the request parameters.
+  // Construct the rest of the URL adding in the request parameters.
   $url = $plings_url . '/' . $format . '.activity.php/' . $period . '/' . $filter_type . '/' . $filter_value . '?APIKey=' . $plings_api_key . '&MaxResults=' . $limit;
 
   // Make the request to Plings.

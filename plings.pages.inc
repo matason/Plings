@@ -10,6 +10,15 @@
  * Provide an admin form for Plings settings.
  */
 function plings_admin_form($form_state) {
+  // Protocol for fetching Plings.
+  $form['plings_protocol'] = array(
+    '#type' => 'select',
+    '#title' => t('Protocol'),
+    '#description' => t('Choose the protocol to use when fetching Plings.'),
+    '#options' => drupal_map_assoc(array('http', 'https'), 't'),
+    '#default_value' => variable_get('plings_protocol', 'http'),
+  );
+
   // Plings requires an API Key to work.
   $form['plings_api_key'] = array(
     '#type' => 'textfield',
