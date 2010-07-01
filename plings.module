@@ -62,6 +62,68 @@ function plings_cron() {
 }
 
 /**
+ * Implementation of hook_update_index().
+ */
+function plings_update_index() {
+  global $plings_last_id;
+  register_shutdown_function('plings_update_index_shutdown');
+
+  $pling_last_id = variable_get('plings_last_id', 0);
+
+  $result = db_query('SELECT aid, name, details FROM {plings} WHERE aid > %d ORDER BY aid ASC', $plings_last_id);
+
+  while ($row = db_fetch_object($result)) {
+    $plings_last_id = $row->aid;
+    $content = '<h1>' . check_plain($row->name) . '</h1>' . $row->details;
+    search_index($row->aid, 'plings', $content);
+  }
+}
+
+/**
+ * Shutdown function for hook_update_index().
+ */
+function plings_update_index_shutdown() {
+  global $plings_last_id;
+
+  if ($plings_last_id) {
+    variable_set('plings_last_id', $plings_last_id);
+  }
+}
+
+/**
+ * Implementation of hook_search().
+ */
+function plings_search($op = 'search', $keys = NULL) {
+  switch ($op) {
+    case 'name':
+        return t('Plings');
+      break;
+
+    case 'reset':
+      variable_del('plings_last_id');
+      break;
+
+    case 'search':
+      $hits = do_search($keys, 'plings');
+      $results = array();
+
+      foreach ($hits as $item) {
+        $pling = db_fetch_object(db_query('SELECT name, details FROM {plings} WHERE aid = %d', $item->sid));
+        $results[] = array(
+          'link' => url('plings/' . $item->sid),
+          'type' => t('Pling'),
+          'title' => $pling->name,
+          'score' => $item->score,
+          'snippet' => search_excerpt($keys, $pling->details),
+        );
+      }
+
+      return $results;
+      break;
+  }
+}
+
+/**
  * Refresh Plings for a user.
  *
  * @param $account
